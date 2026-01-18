@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -55,7 +56,7 @@ func (cm *CacheManager) lru() {
 	}
 
 	delete(cm.Cache, oldestKey)
-	cm.Stats.Evictions++
+	atomic.AddInt64(&cm.Stats.Evictions, 1)
 }
 
 // Set добавляет или обновляет запись в кеше
@@ -102,15 +103,11 @@ func (cm *CacheManager) Get(key string) (interface{}, bool) {
 	v, ok := cm.Cache[key]
 	cm.mu.RUnlock()
 	if !ok || time.Since(v.LastAccess) > v.TTL {
-		cm.mu.Lock()
-		cm.Stats.Misses++
-		cm.mu.Unlock()
+		atomic.AddInt64(&cm.Stats.Misses, 1)
 		return nil, false
 	}
 
-	cm.mu.Lock()
-	cm.Stats.Hits++
-	cm.mu.Unlock()
+	atomic.AddInt64(&cm.Stats.Hits, 1)
 	return v.Value, true
 }
 
@@ -136,7 +133,7 @@ func (cm *CacheManager) ClearByTTL() {
 	now := time.Now()
 	for k, v := range cm.Cache {
 		if now.Sub(v.LastAccess) > v.TTL {
-			cm.Stats.Evictions++
+			atomic.AddInt64(&cm.Stats.Evictions, 1)
 			cm.Delete(k)
 		}
 	}
@@ -162,7 +159,7 @@ func (cm *CacheManager) StartCleanup(ctx context.Context) {
 
 // GetStats возвращает статистику кеша
 func (cm *CacheManager) GetStats() CacheStats {
-	cm.Stats.Size = len(cm.Cache)
+	atomic.StoreInt64(&cm.Stats.Size, 1)
 	return cm.Stats
 }
 
@@ -171,7 +168,7 @@ type CacheStats struct {
 	Hits      int64 // Количество успешных Get
 	Misses    int64 // Количество неуспешных Get
 	Evictions int64 // Количество вытесненных записей (из-за переполнения или TTL)
-	Size      int   // Текущий размер кеша
+	Size      int64 // Текущий размер кеша
 }
 
 func main() {
